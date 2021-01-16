@@ -1,15 +1,15 @@
 BUILD_DIR=rootfs
 BINARY=$(BUILD_DIR)/docker-volume-imagefs
 LOOP_BINARY=$(BUILD_DIR)/loop
-REPONAME=fermayo/imagefs
+REPONAME=nyamisty/imagefs
 
 test:
-	docker run --rm -v $(CURDIR):/go/src/app -w /go/src/app golang:1.7 sh -c "go get -v && go test -v"
+	docker run --rm -v $(CURDIR):/go/src/app -w /go/src/app golang:1.15 sh -c "go get -v && go test -v"
 
 binary: $(BINARY)
 
 $(BINARY):
-	docker run --rm -v $(CURDIR):/go/src/app -w /go/src/app golang:1.7 sh -c "CGO_ENABLED=0 GOOS=linux go build -ldflags '-s' -a -installsuffix cgo -o $(BINARY); go build -o $(LOOP_BINARY) cmd/loop.go"
+	docker run --rm -v $(CURDIR):/go/src/app -w /go/src/app golang:1.15 sh -c "CGO_ENABLED=0 GOOS=linux go build -ldflags '-s' -a -o $(BINARY); go build -o $(LOOP_BINARY) cmd/loop.go"
 
 clean:
 	rm -fr $(BUILD_DIR)

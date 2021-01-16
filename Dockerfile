@@ -1,6 +1,6 @@
 FROM alpine:latest
 
-ADD rootfs/build/docker-volume-imagefs /
-ADD rootfs/build/loop /
+ADD rootfs/docker-volume-imagefs /
+ADD rootfs/loop /
 
 CMD ["/docker-volume-imagefs"]

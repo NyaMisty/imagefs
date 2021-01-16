@@ -21,11 +21,11 @@ type ImagefsDriver struct {
 }
 
 // Create creates a volume
-func (d ImagefsDriver) Create(r volume.Request) volume.Response {
+func (d ImagefsDriver) Create(r *volume.CreateRequest) error {
 	fmt.Printf("-> Create %+v\n", r)
 	source, ok := r.Options["source"]
 	if !ok {
-		return volume.Response{Err: "no source volume specified"}
+		return fmt.Errorf("no source volume specified")
 	}
 
 	// pull the image
@@ -34,7 +34,7 @@ func (d ImagefsDriver) Create(r volume.Request) volume.Response {
 		RegistryAuth: "null",
 	})
 	if err != nil {
-		return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+		return fmt.Errorf("unexpected error: %s", err)
 	}
 	scanner := bufio.NewScanner(readCloser)
 	for scanner.Scan() {
@@ -58,11 +58,12 @@ func (d ImagefsDriver) Create(r volume.Request) volume.Response {
 		containerConfig,
 		hostConfig,
 		networkConfig,
+		nil,
 		// TODO(rabrams) namespace
 		r.Name,
 	)
 	if err != nil {
-		return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+		return fmt.Errorf("unexpected error: %s", err)
 	}
 	d.cli.ContainerStart(
 		context.Background(),
@@ -70,18 +71,18 @@ func (d ImagefsDriver) Create(r volume.Request) volume.Response {
 		types.ContainerStartOptions{},
 	)
 	if err != nil {
-		return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+		return fmt.Errorf("unexpected error: %s", err)
 	}
-	return volume.Response{Err: ""}
+	return nil
 }
 
 // List lists available volumes
-func (d ImagefsDriver) List(r volume.Request) volume.Response {
+func (d ImagefsDriver) List() (*volume.ListResponse, error) {
 	containers, err := d.cli.ContainerList(context.Background(), types.ContainerListOptions{})
 	if err != nil {
-		return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+		return nil, fmt.Errorf("unexpected error: %s", err)
 	}
-	response := volume.Response{}
+	response := &volume.ListResponse{}
 	for i := range containers {
 		_, ok := containers[i].Labels["com.docker.imagefs.version"]
 		if !ok {
@@ -92,45 +93,44 @@ func (d ImagefsDriver) List(r volume.Request) volume.Response {
 			Name: containers[i].Names[0],
 		})
 	}
-	return response
+	return response, nil
 }
 
 // Get gets a volume
-func (d ImagefsDriver) Get(r volume.Request) volume.Response {
+func (d ImagefsDriver) Get(r *volume.GetRequest) (*volume.GetResponse, error) {
 	fmt.Printf("-> Mount %+v\n", r)
 	container, err := d.cli.ContainerInspect(context.Background(), r.Name)
 	if err != nil {
-		return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+		return nil, fmt.Errorf("unexpected error: %s", err)
 	}
 	if container.GraphDriver.Name != "overlay" {
-		return volume.Response{Err: fmt.Sprintf("unexpected graph driver: %s", container.GraphDriver.Name)}
+		return nil, fmt.Errorf("unexpected graph driver: %s", container.GraphDriver.Name)
 	}
 	mergedDir, ok := container.GraphDriver.Data["MergedDir"]
 	if !ok {
-		return volume.Response{Err: fmt.Sprintf("missing MergedDir")}
+		return nil, fmt.Errorf("missing MergedDir")
 	}
 	// HACK directory is relative to host but docker will prepend rootfs of the
 	// plugin container
 	mergedDir = fmt.Sprintf("../../../../../../../../../../../%s", mergedDir)
-	return volume.Response{
+	return &volume.GetResponse{
 		Volume: &volume.Volume{
 			Name:       r.Name,
 			Mountpoint: mergedDir,
 		},
-		Mountpoint: mergedDir,
-	}
+	}, nil
 }
 
 // Remove removes a volume
-func (d ImagefsDriver) Remove(r volume.Request) volume.Response {
+func (d ImagefsDriver) Remove(r *volume.RemoveRequest) error {
 	timeout := 60 * time.Second
 	err := d.cli.ContainerStop(context.Background(), r.Name, &timeout)
 	if err != nil {
-		return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+		return fmt.Errorf("unexpected error: %s", err)
 	}
 	container, err := d.cli.ContainerInspect(context.Background(), r.Name)
 	if err != nil {
-		return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+		return fmt.Errorf("unexpected error: %s", err)
 	}
 	target, ok := container.Config.Labels["com.docker.imagefs.target"]
 	if ok {
@@ -138,7 +138,7 @@ func (d ImagefsDriver) Remove(r volume.Request) volume.Response {
 			Reference: target,
 		})
 		if err != nil {
-			return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+			return fmt.Errorf("unexpected error: %s", err)
 		}
 		parts := strings.Split(target, "/")
 		if len(parts) == 3 {
@@ -148,7 +148,7 @@ func (d ImagefsDriver) Remove(r volume.Request) volume.Response {
 				RegistryAuth: "null",
 			})
 			if err != nil {
-				return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+				return fmt.Errorf("unexpected error: %s", err)
 			}
 			scanner := bufio.NewScanner(readCloser)
 			for scanner.Scan() {
@@ -159,7 +159,7 @@ func (d ImagefsDriver) Remove(r volume.Request) volume.Response {
 		Force: true,
 	})
 	if err != nil {
-		return volume.Response{Err: fmt.Sprintf("unexpected error: %s", err)}
+		return fmt.Errorf("unexpected error: %s", err)
 	}
 
 	// HACK remove duplicate container until we can figure out why it is being created
@@ -177,31 +177,47 @@ func (d ImagefsDriver) Remove(r volume.Request) volume.Response {
 		}
 	}
 
-	return volume.Response{}
+	return nil
 }
 
 // Path gets the mounted path of a volume
-func (d ImagefsDriver) Path(r volume.Request) volume.Response {
-	return d.Get(r)
+func (d ImagefsDriver) Path(r *volume.PathRequest) (*volume.PathResponse, error) {
+	getReq := volume.GetRequest{
+		Name: r.Name,
+	}
+	ret, err := d.Get(&getReq)
+	var _ret *volume.PathResponse
+	if ret != nil {
+		_ret = &volume.PathResponse{
+			Mountpoint: ret.Volume.Mountpoint,
+		}
+	}
+	return _ret, err
 }
 
 // Mount mounts a volume
-func (d ImagefsDriver) Mount(r volume.MountRequest) volume.Response {
-	return d.Path(volume.Request{Name: r.Name})
+func (d ImagefsDriver) Mount(r *volume.MountRequest) (*volume.MountResponse, error) {
+	var _ret *volume.MountResponse
+	ret, err := d.Path(&volume.PathRequest{Name: r.Name})
+	if ret != nil {
+		_ret = &volume.MountResponse{
+			Mountpoint: ret.Mountpoint,
+		}
+	}
+	return _ret, err
 }
 
 // Unmount unmounts a volume
-func (d ImagefsDriver) Unmount(r volume.UnmountRequest) volume.Response {
+func (d ImagefsDriver) Unmount(r *volume.UnmountRequest) error {
 	fmt.Printf("-> Unmount %+v\n", r)
-	response := volume.Response{}
-	fmt.Printf("<- %+v\n", response)
-	return response
+	fmt.Printf("<- OK\n")
+	return nil
 }
 
 // Capabilities returns the capabilities of the volume driver
-func (d ImagefsDriver) Capabilities(r volume.Request) volume.Response {
-	fmt.Printf("-> Capabilities %+v\n", r)
-	response := volume.Response{Capabilities: volume.Capability{Scope: "local"}}
+func (d ImagefsDriver) Capabilities() *volume.CapabilitiesResponse {
+	fmt.Printf("-> Capabilities\n")
+	response := volume.CapabilitiesResponse{Capabilities: volume.Capability{Scope: "local"}}
 	fmt.Printf("<- %+v\n", response)
-	return response
+	return &response
 }

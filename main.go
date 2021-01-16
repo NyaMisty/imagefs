@@ -19,7 +19,7 @@ const (
 
 func main() {
 	fmt.Println("Starting ImageFS plugin")
-	cli, err := client.NewEnvClient()
+	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		panic(err)
 	}
