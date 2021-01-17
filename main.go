@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -14,15 +15,17 @@ const (
 	// into any container
 	runtimeDir = "/tmp/runtime/"
 	loopBinary = "loop"
-	version    = "0.1"
+	version    = "0.2"
 )
 
 func main() {
 	fmt.Println("Starting ImageFS plugin")
+	ctx := context.Background()
 	cli, err := client.NewClientWithOpts(client.FromEnv)
 	if err != nil {
 		panic(err)
 	}
+	cli.NegotiateAPIVersion(ctx)
 	err = os.Mkdir(runtimeDir, os.ModePerm)
 	if err != nil && !os.IsExist(err) {
 		panic(err)

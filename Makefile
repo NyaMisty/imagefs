@@ -6,10 +6,10 @@ REPONAME=nyamisty/imagefs
 test:
 	docker run --rm -v $(CURDIR):/go/src/app -w /go/src/app golang:1.15 sh -c "go get -v && go test -v"
 
-binary: $(BINARY)
-
-$(BINARY):
+$(BINARY): driver.go main.go
 	docker run --rm -v $(CURDIR):/go/src/app -w /go/src/app golang:1.15 sh -c "CGO_ENABLED=0 GOOS=linux go build -ldflags '-s' -a -o $(BINARY); go build -o $(LOOP_BINARY) cmd/loop.go"
+
+binary: $(BINARY)
 
 clean:
 	rm -fr $(BUILD_DIR)
@@ -18,9 +18,11 @@ image: binary
 	docker build -f Dockerfile -t $(REPONAME) .
 
 plugin: binary
+	docker plugin rm -f $(REPONAME) || true
 	docker plugin create $(REPONAME) .
+	docker plugin enable $(REPONAME)
 
-plugin-push:
+plugin-push: plugin
 	docker plugin push $(REPONAME)
 
 image-push:
